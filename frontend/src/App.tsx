@@ -5887,6 +5887,7 @@ function App() {
   if (
     isSupabaseConfigured &&
     workspaceLoading &&
+    !(passwordSetupRequired && authSession) &&
     authSession &&
     workspaceLoadedUserId !== authSession.user.id
   ) {
@@ -5933,7 +5934,11 @@ function App() {
     );
   }
 
-  if (isSupabaseConfigured && workspaceError) {
+  if (
+    isSupabaseConfigured &&
+    workspaceError &&
+    !(passwordSetupRequired && authSession)
+  ) {
     return (
       <main className="auth-shell">
         <section className="auth-panel" aria-labelledby="workspace-error-title">

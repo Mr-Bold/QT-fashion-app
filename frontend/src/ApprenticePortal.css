@@ -125,9 +125,14 @@
 
 .apprentice-portal-task-heading {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+}
+
+.apprentice-portal-task-heading > div {
+  min-width: 0;
 }
 
 .apprentice-portal-task-heading h2 {
@@ -252,6 +257,8 @@
 }
 
 .apprentice-portal-comment-label textarea {
+  box-sizing: border-box;
+  width: 100%;
   min-height: 70px;
   padding: 10px;
   resize: vertical;
@@ -373,6 +380,15 @@
 
   .apprentice-portal-task {
     padding: 15px;
+  }
+
+  .apprentice-portal-task-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .apprentice-portal-task-heading h2 {
+    overflow-wrap: anywhere;
   }
 
   .apprentice-portal-history li {
