@@ -35,7 +35,7 @@ From the repository root, run `npm run dev` to start the website or `npm run bui
 2. For a new project, run `backend/sql/database.sql`. Then, for both new and existing projects, run these migrations in order: `backend/sql/migrations/20261022_dashboard_backend.sql`, `backend/sql/migrations/20261023_customer_timeline.sql`, `backend/sql/migrations/20261023_measurement_presets.sql`, `backend/sql/migrations/20261023_measurement_history.sql`, `backend/sql/migrations/20261023_measurement_photos.sql`, `backend/sql/migrations/20261023_apprentice_management.sql`, `backend/sql/migrations/20261024_measurement_billing.sql`, `backend/sql/migrations/20261025_apprentice_portal.sql`, `backend/sql/migrations/20261026_task_page_workflow.sql`, `backend/sql/migrations/20261027_multi_shop_accounts.sql`, `backend/sql/migrations/20261028_qt_fashion_app_brand.sql`, `backend/sql/migrations/20261029_apprentice_deletion.sql`, and `backend/sql/migrations/20261030_customer_history_deletion.sql`. Run `backend/sql/security.sql` last.
 
    Do not run `backend/sql/security.sql` before the multi-shop migration: it defines tenant-scoped policies that rely on the ownership columns and helper functions added by that migration. The multi-shop migration assigns legacy rows automatically only when there is exactly one active owner; it stops if existing rows cannot be safely attributed.
-3. In Supabase Authentication settings, enable email/password sign-in and allow the local URL `http://localhost:5173/` and your production app URL as redirect URLs. Configure email delivery for account invitations and recovery if your Supabase project requires it.
+3. In Supabase Authentication settings, enable email/password sign-in. Set the Auth **Site URL** to your deployed app's exact public origin (for example, `https://your-app.vercel.app` or your Render URL), then add that origin and the local URL `http://localhost:5173/**` to the allowed redirect URLs. Sign-up confirmation and password-reset links return to the origin where the request was made. Configure email delivery for account invitations and recovery if your Supabase project requires it.
 4. Copy `frontend/.env.example` to `frontend/.env.local` and fill in the project URL and publishable key from the Supabase project settings:
 
 ```powershell
@@ -51,6 +51,8 @@ Copy-Item frontend/.env.example frontend/.env.local
 supabase --workdir backend functions deploy apprentice-access
 supabase --workdir backend secrets set APP_SITE_URL=https://your-app.example.com
 ```
+
+Set `APP_SITE_URL` to the same exact deployed origin used for the Auth Site URL. This is used for apprentice invitation and reset links; it is separate from the frontend's Supabase API URL.
 
 For local development, set `APP_SITE_URL` to `http://localhost:5173` in the Supabase CLI environment or Edge Function local env file. Use the exact origin that is allow-listed in Supabase Authentication redirect URLs. The function uses Supabase's server-provided URL and service-role environment variables; never add the service-role key to `frontend/.env.local`, a `VITE_` variable, or any browser-accessible setting.
 

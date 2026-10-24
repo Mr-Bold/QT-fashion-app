@@ -4022,6 +4022,7 @@ function App() {
               password,
               options: {
                 data: { full_name: String(formData.get("fullName")).trim() },
+                emailRedirectTo: window.location.origin,
               },
             });
       if (result.error) {
