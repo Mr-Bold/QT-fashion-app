@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import {
+  deleteClothGalleryRecord,
+  importClothGalleryRecords,
+  loadClothGalleryRecords,
+  photoAsDataUrl,
+  saveClothGalleryRecord,
+  type ClothGalleryRecord,
+} from "./lib/cloth-gallery";
 import ApprenticePortal from "./ApprenticePortal";
 import {
   deleteCustomerRecord,
@@ -440,16 +448,7 @@ type OrderRecord = {
   discountAmount?: number;
 };
 
-type ClothRecord = {
-  id: string;
-  name: string;
-  kind: "fabric" | "style";
-  category: string;
-  color: string;
-  pattern: string;
-  details?: string;
-  photo?: string;
-};
+type ClothRecord = ClothGalleryRecord;
 
 const initialClothRecords: ClothRecord[] = [];
 
@@ -795,7 +794,12 @@ function App() {
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(() =>
     dateKey(new Date()),
   );
-  const [clothRecords, setClothRecords] = useState(getStoredClothRecords);
+  const [clothRecords, setClothRecords] = useState<ClothRecord[]>(() =>
+    isSupabaseConfigured ? [] : getStoredClothRecords(),
+  );
+  const [clothGalleryLoading, setClothGalleryLoading] = useState(false);
+  const [clothGalleryError, setClothGalleryError] = useState("");
+  const [galleryImportPending, setGalleryImportPending] = useState(false);
   const [galleryCustomerHistory, setGalleryCustomerHistory] = useState(
     getStoredGalleryCustomerHistory,
   );
@@ -1090,6 +1094,7 @@ function App() {
       if (!mounted) return;
       if (error) setAuthError(error.message);
       setAuthSession(data.session);
+      setClothGalleryLoading(Boolean(data.session));
       setAuthLoading(false);
     });
     const {
@@ -1100,6 +1105,10 @@ function App() {
         setWorkspaceUserRole("");
         setWorkspaceLoading(Boolean(session));
         setWorkspaceError("");
+        setClothGalleryLoading(Boolean(session));
+        setClothRecords([]);
+        setClothGalleryError("");
+        setGalleryImportPending(false);
       }
       setAuthSession(session);
       setAuthLoading(false);
@@ -1192,6 +1201,50 @@ function App() {
       current = false;
     };
   }, [authUserId, workspaceReloadKey]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (!authUserId || workspaceUserRole !== "owner") return;
+
+    let current = true;
+    void loadClothGalleryRecords()
+      .then(async (records) => {
+        if (!current) return;
+        setClothGalleryError("");
+        if (records.length) {
+          setGalleryImportPending(false);
+          setClothRecords(records);
+          return;
+        }
+        const localRecords = getStoredClothRecords();
+        if (localRecords.length) {
+          const importedRecords = await importLocalClothGallery();
+          if (!current) return;
+          if (importedRecords) {
+            setClothRecords(importedRecords);
+            return;
+          }
+        }
+        setClothRecords(records);
+      })
+      .catch((error: unknown) => {
+        console.error("Could not load the Supabase cloth gallery.", error);
+        if (current) {
+          setClothGalleryError(
+            error instanceof Error
+              ? error.message
+              : "Could not load the fabric and style gallery.",
+          );
+        }
+      })
+      .finally(() => {
+        if (current) setClothGalleryLoading(false);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [authUserId, workspaceUserRole, workspaceReloadKey]);
 
   useEffect(() => {
     const realtimeClient = supabase;
@@ -1397,6 +1450,7 @@ function App() {
     }));
     setMeasurementPresetClothAmounts(workspace.measurementPresetClothAmounts);
     setWorkspaceUserRole(workspace.userRole);
+    setClothGalleryLoading(workspace.userRole === "owner");
     const accessLinkUsed =
       typeof window !== "undefined" &&
       (new URLSearchParams(window.location.search).has("apprentice-invite") ||
@@ -3777,6 +3831,37 @@ function App() {
     });
   }
 
+  async function importLocalClothGallery(): Promise<ClothRecord[] | null> {
+    const localRecords = getStoredClothRecords();
+    if (!localRecords.length) return null;
+    const confirmed = await requestConfirmation(
+      "Import this device's gallery?",
+      `Import ${localRecords.length} fabric and style item${localRecords.length === 1 ? "" : "s"}, including their photos, into the signed-in shop's Supabase gallery?`,
+      "Import gallery",
+    );
+    if (!confirmed) {
+      setGalleryImportPending(true);
+      return null;
+    }
+
+    try {
+      const importedRecords = await importClothGalleryRecords(localRecords);
+      try {
+        localStorage.removeItem("oti-b-cloth-gallery");
+      } catch (error) {
+        console.error("The imported local gallery copy could not be removed.", error);
+      }
+      setClothRecords(importedRecords);
+      setClothGalleryError("");
+      setGalleryImportPending(false);
+      openNotice("This device's gallery was imported to Supabase");
+      return importedRecords;
+    } catch (error) {
+      setGalleryImportPending(true);
+      throw error;
+    }
+  }
+
   function resolveConfirmation(confirmed: boolean) {
     const resolve = confirmationResolverRef.current;
     confirmationResolverRef.current = null;
@@ -3849,15 +3934,13 @@ function App() {
     image.src = objectUrl;
   }
 
-  function addCloth(event: FormEvent<HTMLFormElement>) {
+  async function addCloth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const category = String(formData.get("category"));
     const previous = clothRecords.find((cloth) => cloth.id === editingClothId);
     const cloth: ClothRecord = {
-      id:
-        previous?.id ??
-        `${galleryKind === "fabric" ? "FAB" : "STYLE"}-${String(clothRecords.filter((record) => record.kind === galleryKind).length + 1).padStart(3, "0")}`,
+      id: previous?.id ?? crypto.randomUUID(),
       name: String(formData.get("name")).trim(),
       kind: previous?.kind ?? galleryKind,
       category,
@@ -3871,20 +3954,50 @@ function App() {
           ? { photo: previous.photo }
           : {}),
     };
-    const nextRecords = previous
-      ? clothRecords.map((record) =>
-          record.id === previous.id ? cloth : record,
-        )
-      : [cloth, ...clothRecords];
-    try {
-      localStorage.setItem("oti-b-cloth-gallery", JSON.stringify(nextRecords));
-    } catch {
-      openNotice(
-        `Could not save this ${galleryKind}. Your browser storage may be full.`,
-      );
-      return;
+    let savedCloth = cloth;
+    if (isSupabaseConfigured) {
+      if (workspaceUserRole !== "owner") {
+        openNotice("Sign in as the shop owner to manage the cloth gallery.");
+        return;
+      }
+      try {
+        const result = await saveClothGalleryRecord(cloth);
+        savedCloth = result.record;
+        if (result.cleanupWarning) openNotice(result.cleanupWarning);
+      } catch (error) {
+        console.error("Could not save the Supabase cloth gallery item.", error);
+        openNotice(
+          error instanceof Error
+            ? `Could not save this ${galleryKind}: ${error.message}`
+            : `Could not save this ${galleryKind}.`,
+        );
+        return;
+      }
+    } else {
+      const nextRecords = previous
+        ? clothRecords.map((record) =>
+            record.id === previous.id ? cloth : record,
+          )
+        : [cloth, ...clothRecords];
+      try {
+        localStorage.setItem("oti-b-cloth-gallery", JSON.stringify(nextRecords));
+      } catch {
+        openNotice(
+          `Could not save this ${galleryKind}. Your browser storage may be full.`,
+        );
+        return;
+      }
+      setClothRecords(nextRecords);
     }
-    setClothRecords(nextRecords);
+    if (isSupabaseConfigured) {
+      const nextRecords = previous
+        ? clothRecords.map((record) =>
+            record.id === previous.id ? savedCloth : record,
+          )
+        : [savedCloth, ...clothRecords];
+      setClothRecords(nextRecords);
+      setClothGalleryError("");
+    }
     setClothSearch("");
     setClothCategory(`All ${galleryKind === "fabric" ? "Fabrics" : "Styles"}`);
     setClothPhoto("");
@@ -3924,13 +4037,28 @@ function App() {
       return;
 
     const nextRecords = clothRecords.filter((item) => item.id !== record.id);
-    try {
-      localStorage.setItem("oti-b-cloth-gallery", JSON.stringify(nextRecords));
-    } catch {
-      openNotice(
-        `Could not remove this ${typeLabel}. Your browser storage may be unavailable.`,
-      );
-      return;
+    let cleanupWarning: string | undefined;
+    if (isSupabaseConfigured) {
+      try {
+        cleanupWarning = await deleteClothGalleryRecord(record);
+      } catch (error) {
+        console.error("Could not delete the Supabase cloth gallery item.", error);
+        openNotice(
+          error instanceof Error
+            ? `Could not remove this ${typeLabel}: ${error.message}`
+            : `Could not remove this ${typeLabel}.`,
+        );
+        return;
+      }
+    } else {
+      try {
+        localStorage.setItem("oti-b-cloth-gallery", JSON.stringify(nextRecords));
+      } catch {
+        openNotice(
+          `Could not remove this ${typeLabel}. Your browser storage may be unavailable.`,
+        );
+        return;
+      }
     }
 
     setClothRecords(nextRecords);
@@ -3942,7 +4070,10 @@ function App() {
       record.kind,
       `${record.name} · ${record.category}`,
     );
-    openNotice(`${record.kind === "fabric" ? "Fabric" : "Style"} removed from gallery`);
+    openNotice(
+      cleanupWarning ??
+        `${record.kind === "fabric" ? "Fabric" : "Style"} removed from gallery`,
+    );
   }
 
   function startGalleryCustomerAssignment() {
@@ -3951,8 +4082,22 @@ function App() {
     setSelectedGalleryCustomerId(null);
   }
 
-  function saveGalleryItemForCustomer() {
+  async function saveGalleryItemForCustomer() {
     if (!selectedGalleryRecord || !selectedGalleryCustomer) return;
+    let stylePhoto = "";
+    if (selectedGalleryRecord.kind === "style" && selectedGalleryRecord.photo) {
+      try {
+        stylePhoto = await photoAsDataUrl(selectedGalleryRecord.photo);
+      } catch (error) {
+        console.error("Could not prepare the style photo for customer history.", error);
+        openNotice(
+          error instanceof Error
+            ? error.message
+            : "Could not save the style photo to customer history.",
+        );
+        return;
+      }
+    }
     const entry: GalleryCustomerHistory = {
       id: crypto.randomUUID(),
       customerId: selectedGalleryCustomer.dbId ?? selectedGalleryCustomer.id,
@@ -3984,7 +4129,7 @@ function App() {
         garmentName: selectedGalleryRecord.name,
         styleName: selectedGalleryRecord.name,
         fabricName: "",
-        photo: selectedGalleryRecord.photo ?? "",
+        photo: stylePhoto,
         measurements: {},
         unit: shopSettings.measurements === "Inches" ? "inches" : "cm",
         updatedAt: new Date().toISOString(),
@@ -6811,6 +6956,38 @@ function App() {
                     </button>
                   </div>
                 </div>
+                {clothGalleryLoading && (
+                  <p role="status">Loading your saved fabrics and styles…</p>
+                )}
+                {clothGalleryError && (
+                  <p role="alert" className="form-error">
+                    {clothGalleryError}
+                  </p>
+                )}
+                {galleryImportPending && (
+                  <div className="cloth-selected-summary">
+                    <span>
+                      This device has a local gallery that has not been imported
+                      into your Supabase shop.
+                    </span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        void importLocalClothGallery().catch((error: unknown) => {
+                          console.error("Could not import this device's cloth gallery.", error);
+                          setClothGalleryError(
+                            error instanceof Error
+                              ? error.message
+                              : "Could not import this device's gallery.",
+                          );
+                        });
+                      }}
+                    >
+                      Import from this device
+                    </button>
+                  </div>
+                )}
                 <div
                   className="cloth-gallery-tabs"
                   role="tablist"
