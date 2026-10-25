@@ -27,6 +27,7 @@ import {
   updateApprenticeProfileRecord,
   createApprenticeTrainingRecord,
   deleteApprenticeAccount,
+  deleteOwnerAccount,
   inviteApprenticeAccount,
   createApprenticePasswordResetLink,
   completeApprenticePasswordSetup,
@@ -35,7 +36,10 @@ import {
   updateTaskChecklistRecord,
   updateTaskRecordStatus,
 } from "./lib/workspace";
-import { loadCachedWorkspace } from "./lib/offline-cache";
+import {
+  loadCachedWorkspace,
+  removeCachedWorkspace,
+} from "./lib/offline-cache";
 import type {
   WorkspaceApprenticeTrainingRecord,
   WorkspaceCustomerNote,
@@ -840,6 +844,10 @@ function App() {
     useState("");
   const [accountPasswordBusy, setAccountPasswordBusy] = useState(false);
   const [accountPasswordError, setAccountPasswordError] = useState("");
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmationDialog, setConfirmationDialog] =
     useState<ConfirmationDialog | null>(null);
@@ -4412,6 +4420,60 @@ function App() {
     window.setTimeout(() => setNotice(""), 3000);
   }
 
+  async function deleteShopAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDeleteAccountError("");
+    if (workspaceUserRole !== "owner" || !authSession || !supabase) {
+      setDeleteAccountError("Only the signed-in shop owner can delete this shop.");
+      return;
+    }
+    if (deleteAccountConfirmation !== "DELETE MY SHOP") {
+      setDeleteAccountError("Type DELETE MY SHOP exactly to confirm.");
+      return;
+    }
+
+    setDeleteAccountBusy(true);
+    try {
+      await deleteOwnerAccount(deleteAccountPassword);
+    } catch (error) {
+      setDeleteAccountError(
+        error instanceof Error
+          ? error.message
+          : "The shop and account could not be deleted.",
+      );
+      setDeleteAccountBusy(false);
+      return;
+    }
+
+    let cleanupWarning = "";
+    try {
+      await removeCachedWorkspace(authSession.user.id);
+    } catch (error) {
+      console.error("The deleted shop's offline workspace cache could not be cleared.", error);
+      cleanupWarning = " The offline copy on this device could not be cleared; remove this browser's site data.";
+    }
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("oti-b-")) localStorage.removeItem(key);
+      }
+    } catch (error) {
+      console.error("The deleted shop's local browser data could not be cleared.", error);
+      cleanupWarning += " Some local browser data could not be cleared; remove this browser's site data.";
+    }
+
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+    if (signOutError) {
+      console.error("The account was deleted, but this device could not sign out automatically.", signOutError);
+      setNotice(`Shop and account deleted.${cleanupWarning} Refresh this page to sign out.`);
+      setDeleteAccountBusy(false);
+      return;
+    }
+    setDeleteAccountPassword("");
+    setDeleteAccountConfirmation("");
+    setDeleteAccountBusy(false);
+    setNotice(`Shop and account deleted.${cleanupWarning}`);
+  }
+
   function exportWorkspaceData() {
     const exportData = {
       exportedAt: new Date().toISOString(),
@@ -7929,6 +7991,70 @@ function App() {
                         <CircleHelp size={16} />
                         <p>Sign in to a shop account to manage its password.</p>
                       </div>
+                    )}
+                    {supabase && authSession && workspaceUserRole === "owner" && (
+                      <form
+                        className="settings-security-form settings-delete-account-form"
+                        onSubmit={(event) => void deleteShopAccount(event)}
+                      >
+                        <div>
+                          <h4>Delete shop and account</h4>
+                          <p>
+                            This permanently deletes this shop’s customers,
+                            orders, payments, measurements, gallery, photos,
+                            records, and all apprentice login accounts. This
+                            cannot be undone. Export anything you need first.
+                          </p>
+                        </div>
+                        <div className="settings-fields-grid">
+                          <label>
+                            Current password
+                            <input
+                              autoComplete="current-password"
+                              type="password"
+                              value={deleteAccountPassword}
+                              onChange={(event) =>
+                                setDeleteAccountPassword(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Type DELETE MY SHOP to confirm
+                            <input
+                              autoComplete="off"
+                              value={deleteAccountConfirmation}
+                              onChange={(event) =>
+                                setDeleteAccountConfirmation(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                        </div>
+                        {deleteAccountError && (
+                          <p className="settings-error" role="alert">
+                            {deleteAccountError}
+                          </p>
+                        )}
+                        <div className="settings-panel-actions">
+                          <span className="settings-action-hint">
+                            Your password is verified again before deletion.
+                          </span>
+                          <button
+                            className="secondary-button"
+                            type="submit"
+                            disabled={
+                              deleteAccountBusy ||
+                              deleteAccountConfirmation !== "DELETE MY SHOP" ||
+                              !deleteAccountPassword
+                            }
+                          >
+                            {deleteAccountBusy
+                              ? "Deleting shop…"
+                              : "Delete shop and account"}
+                          </button>
+                        </div>
+                      </form>
                     )}
                     {supabase && authSession && (
                       <div className="settings-data-row settings-danger-row">

@@ -66,3 +66,20 @@ export async function loadCachedWorkspace(
     database.close();
   }
 }
+
+export async function removeCachedWorkspace(userId: string): Promise<void> {
+  const database = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(workspaceStoreName, "readwrite");
+      transaction.objectStore(workspaceStoreName).delete(userId);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Could not remove offline records."));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Offline record cleanup was interrupted."));
+    });
+  } finally {
+    database.close();
+  }
+}

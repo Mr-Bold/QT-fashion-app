@@ -1528,7 +1528,7 @@ td a:hover {
   .table-wrap { margin-top: 8px; }
   table { min-width: 520px; }
   .revenue-panel { padding-bottom: 26px; }
-  .mobile-nav { position: fixed; inset: auto 8px max(8px, env(safe-area-inset-bottom, 0px)); z-index: 10; display: flex; height: max(68px, calc(64px + env(safe-area-inset-bottom, 0px))); align-items: center; justify-content: space-between; gap: 2px; padding: 0 6px max(env(safe-area-inset-bottom), 4px); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 16px; background: rgba(255, 255, 255, 0.23); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); backdrop-filter: blur(8.4px); -webkit-backdrop-filter: blur(8.4px); }
+  .mobile-nav { position: fixed; inset: auto 8px max(8px, env(safe-area-inset-bottom, 0px)); z-index: 10; display: flex; height: max(68px, calc(64px + env(safe-area-inset-bottom, 0px))); align-items: center; justify-content: space-between; gap: 2px; padding: 0 6px max(env(safe-area-inset-bottom), 4px); border: 1px solid rgba(255, 255, 255, 0.72); border-radius: 16px; background: rgba(255, 255, 255, 0.9); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); }
   .mobile-nav button { display: flex; min-width: 0; flex: 1 1 0; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 4px 0; border: 0; color: #000000; background: transparent; font: inherit; font-size: 8px; font-weight: 500; white-space: nowrap; cursor: pointer; }
   .mobile-nav button.selected { color: #63268d; }
   .mobile-nav .mobile-add { width: 42px; min-width: 42px; max-width: 42px; height: 42px; flex: 0 0 42px; margin-top: -14px; border-radius: 12px; color: white; background: #702daa; box-shadow: 0 5px 14px rgb(112 45 170 / 29%); }
@@ -9647,6 +9647,36 @@ main.auth-shell.auth-login-shell .auth-login-card .auth-security-note span {
   border-color: #e6b9b5;
   background: #fff5f4;
   color: #8f2b25;
+}
+
+.settings-delete-account-form {
+  padding: 18px 0 4px;
+  border-top: 1px solid #efedf2;
+}
+
+.settings-delete-account-form h4 {
+  margin: 0;
+  color: #873b36;
+  font-size: 13px;
+}
+
+.settings-delete-account-form > div:first-child p {
+  max-width: 600px;
+}
+
+.settings-delete-account-form .secondary-button {
+  border-color: #d9a6a1;
+  color: #a33c34;
+}
+
+.settings-delete-account-form .secondary-button:hover:not(:disabled) {
+  border-color: #c9827b;
+  background: #fff5f4;
+}
+
+.settings-delete-account-form .secondary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .settings-data-row .secondary-button:active {

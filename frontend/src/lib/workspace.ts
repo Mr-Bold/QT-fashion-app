@@ -1224,6 +1224,30 @@ export async function deleteApprenticeAccount(userId: string): Promise<void> {
   await invokeApprenticeAccess<{ ok: boolean }>({ action: 'delete', userId })
 }
 
+export async function deleteOwnerAccount(password: string): Promise<void> {
+  const { data, error } = await requireSupabase().functions.invoke('delete-owner-account', {
+    body: { password, confirmation: 'DELETE MY SHOP' },
+  })
+  if (error) {
+    const context = 'context' in error ? error.context : null
+    if (context instanceof Response) {
+      const responseBody: unknown = await context.clone().json().catch(() => null)
+      if (
+        responseBody
+        && typeof responseBody === 'object'
+        && 'error' in responseBody
+        && typeof responseBody.error === 'string'
+      ) {
+        throw new Error(responseBody.error)
+      }
+    }
+    throw error
+  }
+  if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string') {
+    throw new Error(data.error)
+  }
+}
+
 export async function createApprenticePasswordResetLink(userId: string): Promise<{ actionLink: string; email: string }> {
   return invokeApprenticeAccess({ action: 'password_reset', userId })
 }
