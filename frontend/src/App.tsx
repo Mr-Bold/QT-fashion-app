@@ -84,6 +84,7 @@ import {
   MessageSquareText,
   Pencil,
   Plus,
+  RefreshCw,
   Ruler,
   Search,
   Settings,
@@ -6296,24 +6297,35 @@ function App() {
             </button>
           ))}
         </nav>
-        <button
-          className="sidebar-profile"
-          type="button"
-          onClick={() => void signOut()}
-        >
-          <span className="profile-avatar">
-            {ownerDisplayName
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((part) => part[0])
-              .join("")
-              .toUpperCase()}
-          </span>
-          <span className="profile-copy">
-            <strong>{ownerDisplayName}</strong>
-            <small>Sign out</small>
-          </span>
-        </button>
+        <div className="sidebar-bottom-actions">
+          <button
+            className="nav-link sidebar-refresh-button"
+            type="button"
+            aria-label="Refresh page"
+            onClick={() => window.location.reload()}
+          >
+            <RefreshCw size={16} strokeWidth={1.8} />
+            <span>Refresh page</span>
+          </button>
+          <button
+            className="sidebar-profile"
+            type="button"
+            onClick={() => void signOut()}
+          >
+            <span className="profile-avatar">
+              {ownerDisplayName
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => part[0])
+                .join("")
+                .toUpperCase()}
+            </span>
+            <span className="profile-copy">
+              <strong>{ownerDisplayName}</strong>
+              <small>Sign out</small>
+            </span>
+          </button>
+        </div>
       </aside>
 
       <main
@@ -6391,6 +6403,15 @@ function App() {
               onClick={() => setActivePage("Help")}
             >
               <CircleHelp size={16} />
+            </button>
+            <button
+              className="help-button refresh-button"
+              aria-label="Refresh page"
+              title="Refresh page"
+              type="button"
+              onClick={() => window.location.reload()}
+            >
+              <RefreshCw size={15} />
             </button>
             <button
               className="primary-button desktop-create"
