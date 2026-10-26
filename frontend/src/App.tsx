@@ -1129,6 +1129,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let wasHidden = document.visibilityState === "hidden";
     function handleOnline() {
       setIsOnline(true);
       setWorkspaceError("");
@@ -1137,13 +1138,28 @@ function App() {
     function handleOffline() {
       setIsOnline(false);
     }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+        return;
+      }
+      if (!wasHidden) return;
+      wasHidden = false;
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine && authSession) {
+        setWorkspaceError("");
+        setWorkspaceReloadKey((key) => key + 1);
+      }
+    }
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [authSession]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
