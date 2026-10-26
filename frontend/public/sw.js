@@ -1,4 +1,4 @@
-const CACHE_NAME = "qt-fashion-shell-v5";
+const CACHE_NAME = "qt-fashion-shell-v6";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -23,7 +23,10 @@ self.addEventListener("install", (event) => {
       ]);
     })(),
   );
-  self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

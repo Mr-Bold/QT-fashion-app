@@ -55,6 +55,25 @@ supabase --workdir backend secrets set APP_SITE_URL=https://your-app.example.com
 
 Set `APP_SITE_URL` to the same exact deployed origin used for the Auth Site URL. This is used for apprentice invitation and reset links; it is separate from the frontend's Supabase API URL.
 
+### Help-page feedback email
+
+The Help page lets signed-in users submit a 1–5 app rating, a challenge or feature suggestion, and a required calling/WhatsApp number. The `submit-app-feedback` Edge Function verifies the signed-in user, validates the submitted fields, and emails the feedback directly to `affranyanksontheobald@gmail.com`. Feedback is not stored in the app database.
+
+1. Create a Resend account and verify a sender domain. Choose a sender address on that domain.
+2. Set the provider key and sender address as Supabase Edge Function secrets (never add them to a frontend environment variable):
+
+```powershell
+supabase --workdir backend secrets set RESEND_API_KEY=your-resend-api-key FEEDBACK_FROM_EMAIL=feedback@your-verified-domain.com
+```
+
+3. Ensure `APP_SITE_URL` is set to the deployed app's exact origin as described above, then deploy the function:
+
+```powershell
+supabase --workdir backend functions deploy submit-app-feedback
+```
+
+The user-provided phone number and feedback text are sent to the specified recipient by email. Treat the resulting email as personal information and restrict access to the inbox accordingly.
+
 Vercel serves the app with a Content Security Policy and other security headers configured in the root `vercel.json`. The policy allows same-origin app assets, the Supabase project API/Storage/WebSocket endpoints, and the Google Fonts resources used by the UI. If you change font providers, add third-party scripts, embed external frames, or use another Supabase-compatible domain, update the policy to allow only those required sources and re-test sign-in, gallery images, and the installed PWA after deployment.
 
 For local development, set `APP_SITE_URL` to `http://localhost:5173` in the Supabase CLI environment or Edge Function local env file. Use the exact origin that is allow-listed in Supabase Authentication redirect URLs. The function uses Supabase's server-provided URL and service-role environment variables; never add the service-role key to `frontend/.env.local`, a `VITE_` variable, or any browser-accessible setting.
@@ -64,6 +83,8 @@ Do not put a Supabase service-role key in the Vite app or `frontend/.env.local`.
 ## Current Integration State
 
 After an online visit, the production app caches its shell and the signed-in user's latest workspace snapshot in the browser for offline reading. The snapshot is stored in IndexedDB on a per-user basis and is not encrypted; use this only on a private device. Reconnecting refreshes the workspace from Supabase. Offline edits are not queued or synchronized yet, so workspace changes must be made while online. Cached private photo URLs may also expire while offline.
+
+When a new production build is available, the installed app waits and shows an **Update now** button; clicking it activates the new service worker and reloads the app. The Help page shows green **New** labels for release highlights until the user marks them as seen. For each release with user-visible changes, update `releaseHighlightsId` and the corresponding Help-page badges in `frontend/src/App.tsx` so users can find the changed features.
 
 Supabase sign-in/sign-up and sign-out are enabled when both `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are present. Without them, the app runs in its local demo mode; apprentice portal logins and invitations require Supabase.
 

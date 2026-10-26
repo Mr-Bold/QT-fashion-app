@@ -111,6 +111,17 @@ const navigation = [
   { label: "Settings", icon: Settings },
 ];
 
+const releaseHighlightsId = "2026-10-26-help-support-and-feedback";
+const releaseHighlightsStorageKey = "qt-fashion-seen-release-highlights";
+
+function hasUnseenReleaseHighlights() {
+  try {
+    return localStorage.getItem(releaseHighlightsStorageKey) !== releaseHighlightsId;
+  } catch {
+    return true;
+  }
+}
+
 type CustomerRecord = {
   id: string;
   dbId?: string;
@@ -722,6 +733,12 @@ const statusChartColors: Record<string, string> = {
 };
 
 function App() {
+  const [hasNewFeatures, setHasNewFeatures] = useState(
+    hasUnseenReleaseHighlights,
+  );
+  const [waitingServiceWorker, setWaitingServiceWorker] =
+    useState<ServiceWorker | null>(null);
+  const applyingServiceWorkerUpdate = useRef(false);
   const [installPromptEvent, setInstallPromptEvent] =
     useState<InstallPromptEvent | null>(null);
   const [isAppInstalled, setIsAppInstalled] = useState(
@@ -849,12 +866,66 @@ function App() {
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
   const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [feedbackRating, setFeedbackRating] = useState("5");
+  const [feedbackChallenge, setFeedbackChallenge] = useState("");
+  const [feedbackSuggestions, setFeedbackSuggestions] = useState("");
+  const [feedbackPhone, setFeedbackPhone] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
   const [notice, setNotice] = useState("");
   const [confirmationDialog, setConfirmationDialog] =
     useState<ConfirmationDialog | null>(null);
   const confirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const handleUpdateAvailable = (event: Event) => {
+      const registration = (
+        event as CustomEvent<ServiceWorkerRegistration>
+      ).detail;
+      if (registration.waiting) setWaitingServiceWorker(registration.waiting);
+    };
+    const handleControllerChange = () => {
+      if (!applyingServiceWorkerUpdate.current) return;
+      applyingServiceWorkerUpdate.current = false;
+      window.location.reload();
+    };
+
+    window.addEventListener("qt-app-update-available", handleUpdateAvailable);
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      handleControllerChange,
+    );
+    return () => {
+      window.removeEventListener(
+        "qt-app-update-available",
+        handleUpdateAvailable,
+      );
+      navigator.serviceWorker.removeEventListener(
+        "controllerchange",
+        handleControllerChange,
+      );
+    };
+  }, []);
+
+  function applyAvailableUpdate() {
+    if (!waitingServiceWorker) return;
+    applyingServiceWorkerUpdate.current = true;
+    waitingServiceWorker.postMessage({ type: "SKIP_WAITING" });
+  }
+
+  function dismissNewFeatures() {
+    try {
+      localStorage.setItem(releaseHighlightsStorageKey, releaseHighlightsId);
+    } catch (error) {
+      console.error("Could not save that release highlights were viewed.", error);
+    }
+    setHasNewFeatures(false);
+  }
   const [orders, setOrders] = useState(initialOrders);
   const [orderFormError, setOrderFormError] = useState("");
   const [payments, setPayments] = useState(initialPayments);
@@ -3843,6 +3914,63 @@ function App() {
     window.setTimeout(() => setNotice(""), 3000);
   }
 
+  async function submitAppFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedbackError("");
+    setFeedbackSent(false);
+    if (!supabase || !authSession) {
+      setFeedbackError("Sign in before sending app feedback.");
+      return;
+    }
+    if (!feedbackChallenge.trim() && !feedbackSuggestions.trim()) {
+      setFeedbackError("Describe a challenge or share a feature suggestion.");
+      return;
+    }
+
+    setFeedbackBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("submit-app-feedback", {
+        body: {
+          rating: Number(feedbackRating),
+          challenge: feedbackChallenge.trim(),
+          suggestions: feedbackSuggestions.trim(),
+          phone: feedbackPhone.trim(),
+        },
+      });
+      if (error) {
+        const context = "context" in error ? error.context : null;
+        if (context instanceof Response) {
+          const responseBody: unknown = await context.clone().json().catch(() => null);
+          if (
+            responseBody &&
+            typeof responseBody === "object" &&
+            "error" in responseBody &&
+            typeof responseBody.error === "string"
+          ) {
+            throw new Error(responseBody.error);
+          }
+        }
+        throw error;
+      }
+      if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
+        throw new Error(data.error);
+      }
+      setFeedbackChallenge("");
+      setFeedbackSuggestions("");
+      setFeedbackPhone("");
+      setFeedbackSent(true);
+    } catch (error) {
+      console.error("Could not send app feedback.", error);
+      setFeedbackError(
+        error instanceof Error
+          ? error.message
+          : "Your feedback could not be sent. Please try again.",
+      );
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
   function requestConfirmation(
     title: string,
     message: string,
@@ -6414,11 +6542,14 @@ function App() {
             </button>
             <button
               className="help-button"
-              aria-label="Help"
+              aria-label={hasNewFeatures ? "Help, new features" : "Help"}
               type="button"
               onClick={() => setActivePage("Help")}
             >
               <CircleHelp size={16} />
+              {hasNewFeatures && (
+                <span className="new-feature-badge">New</span>
+              )}
             </button>
             <button
               className="help-button refresh-button"
@@ -6438,6 +6569,22 @@ function App() {
             </button>
           </div>
         </header>
+
+        {waitingServiceWorker && (
+          <section className="app-update-banner" role="status">
+            <div>
+              <strong>A QT Fashion app update is ready</strong>
+              <p>Update now to load the latest version of the app.</p>
+            </div>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={applyAvailableUpdate}
+            >
+              Update now
+            </button>
+          </section>
+        )}
 
         {!isOnline && (
           <p className="offline-workspace-banner" role="status">
@@ -6624,6 +6771,18 @@ function App() {
                 </p>
               </div>
             </div>
+            {hasNewFeatures && (
+              <div className="release-highlights" role="status">
+                <p>
+                  <strong>New in this update:</strong> Contact Help &amp; Support
+                  by phone, WhatsApp, or email, and send app ratings and
+                  suggestions from this page.
+                </p>
+                <button type="button" onClick={dismissNewFeatures}>
+                  Mark as seen
+                </button>
+              </div>
+            )}
             <div className="help-topic-grid">
               <article className="panel help-topic">
                 <span className="help-topic-icon">
@@ -6733,6 +6892,123 @@ function App() {
                 </button>
               </article>
             </div>
+            <section
+              className="panel help-support"
+              aria-labelledby="help-support-title"
+            >
+              <div>
+                <h3 id="help-support-title">
+                  Help &amp; Support{" "}
+                  {hasNewFeatures && (
+                    <span className="new-feature-badge">New</span>
+                  )}
+                </h3>
+                <p>
+                  Need a hand? Call or message us on WhatsApp, or send us an
+                  email.
+                </p>
+              </div>
+              <div className="help-support-links">
+                <a href="tel:+233596597773">Call +233 59 659 7773</a>
+                <a
+                  href="https://wa.me/233596597773"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  WhatsApp +233 59 659 7773
+                </a>
+                <a href="mailto:affranyanksontheobald@gmail.com">
+                  affranyanksontheobald@gmail.com
+                </a>
+              </div>
+            </section>
+            <section
+              className="panel help-feedback"
+              aria-labelledby="help-feedback-title"
+            >
+              <div>
+                <h3 id="help-feedback-title">
+                  Rate QT Fashion and share feedback{" "}
+                  {hasNewFeatures && (
+                    <span className="new-feature-badge">New</span>
+                  )}
+                </h3>
+                <p>
+                  Tell us what is working, describe any challenges, or suggest
+                  features. Your feedback will be emailed to the QT Fashion
+                  team.
+                </p>
+              </div>
+              <form className="help-feedback-form" onSubmit={submitAppFeedback}>
+                <label>
+                  How would you rate the app?
+                  <select
+                    value={feedbackRating}
+                    onChange={(event) => setFeedbackRating(event.target.value)}
+                    required
+                  >
+                    <option value="5">5 — Excellent</option>
+                    <option value="4">4 — Good</option>
+                    <option value="3">3 — Fair</option>
+                    <option value="2">2 — Needs improvement</option>
+                    <option value="1">1 — Poor</option>
+                  </select>
+                </label>
+                <label>
+                  What challenges have you experienced?
+                  <textarea
+                    maxLength={2000}
+                    rows={4}
+                    value={feedbackChallenge}
+                    onChange={(event) => setFeedbackChallenge(event.target.value)}
+                    placeholder="Describe anything that was difficult or did not work as expected."
+                  />
+                </label>
+                <label>
+                  What features or improvements would you suggest?
+                  <textarea
+                    maxLength={2000}
+                    rows={4}
+                    value={feedbackSuggestions}
+                    onChange={(event) => setFeedbackSuggestions(event.target.value)}
+                    placeholder="Share ideas that would make the app more useful for your shop."
+                  />
+                </label>
+                <label>
+                  Calling or WhatsApp number
+                  <input
+                    autoComplete="tel"
+                    maxLength={40}
+                    type="tel"
+                    value={feedbackPhone}
+                    onChange={(event) => setFeedbackPhone(event.target.value)}
+                    placeholder="+233 20 123 4567"
+                    required
+                  />
+                </label>
+                <p className="help-feedback-privacy">
+                  Your number is included so the team can follow up about your
+                  feedback.
+                </p>
+                {feedbackError && (
+                  <p className="help-feedback-message error" role="alert">
+                    {feedbackError}
+                  </p>
+                )}
+                {feedbackSent && (
+                  <p className="help-feedback-message success" role="status">
+                    Thank you — your feedback has been sent.
+                  </p>
+                )}
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={feedbackBusy}
+                >
+                  {feedbackBusy ? "Sending feedback…" : "Send feedback"}
+                </button>
+              </form>
+            </section>
           </section>
         ) : activePage === "Calendar" ? (
           <section className="calendar-page" aria-label="Shop calendar">
@@ -13811,6 +14087,9 @@ function App() {
               >
                 <Icon size={17} />
                 <span>{label}</span>
+                {label === "Help" && hasNewFeatures && (
+                  <span className="new-feature-badge">New</span>
+                )}
               </button>
             ))}
           </nav>
