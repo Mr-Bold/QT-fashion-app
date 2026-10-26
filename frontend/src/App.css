@@ -1517,6 +1517,7 @@ td a:hover {
   .notification-button { width: 30px; height: 30px; }
   .help-button,
   .desktop-create { display: none; }
+  .refresh-button { display: inline-grid; width: 30px; height: 30px; border-radius: 6px; color: #24263b; background: transparent; }
   .mobile-create-row { display: flex; justify-content: flex-end; margin: -2px 0 12px; }
   .mobile-create-row.search-active { visibility: hidden; }
   .mobile-create-row .primary-button { min-height: 32px; font-size: 10px; }
