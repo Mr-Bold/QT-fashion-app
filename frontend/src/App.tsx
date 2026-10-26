@@ -3952,8 +3952,18 @@ function App() {
         }
         throw error;
       }
-      if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
+      if (!data || typeof data !== "object") {
+        throw new Error(
+          "The feedback service returned an unexpected response. Please try again later.",
+        );
+      }
+      if ("error" in data && typeof data.error === "string") {
         throw new Error(data.error);
+      }
+      if (!("ok" in data) || data.ok !== true) {
+        throw new Error(
+          "The feedback service is not updated yet. Please contact support directly.",
+        );
       }
       setFeedbackChallenge("");
       setFeedbackSuggestions("");

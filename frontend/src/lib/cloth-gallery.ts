@@ -44,9 +44,14 @@ async function uploadPhoto(
   itemId: string,
   photo: string,
 ): Promise<string> {
-  const response = await fetch(photo)
-  if (!response.ok) throw new Error('The selected gallery photo could not be read.')
-  const file = await response.blob()
+  const dataUrl = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(photo)
+  if (!dataUrl) throw new Error('The selected gallery photo could not be read.')
+  const contentType = dataUrl[1] || 'text/plain'
+  const payload = dataUrl[3]
+  const bytes = dataUrl[2]
+    ? Uint8Array.from(atob(payload), (character) => character.charCodeAt(0))
+    : new TextEncoder().encode(decodeURIComponent(payload))
+  const file = new Blob([bytes], { type: contentType })
   if (!['image/jpeg', 'image/png'].includes(file.type)) {
     throw new Error('Gallery photos must be JPG or PNG images.')
   }
