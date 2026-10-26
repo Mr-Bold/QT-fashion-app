@@ -55,6 +55,8 @@ supabase --workdir backend secrets set APP_SITE_URL=https://your-app.example.com
 
 Set `APP_SITE_URL` to the same exact deployed origin used for the Auth Site URL. This is used for apprentice invitation and reset links; it is separate from the frontend's Supabase API URL.
 
+Vercel serves the app with a Content Security Policy and other security headers configured in the root `vercel.json`. The policy allows same-origin app assets, the Supabase project API/Storage/WebSocket endpoints, and the Google Fonts resources used by the UI. If you change font providers, add third-party scripts, embed external frames, or use another Supabase-compatible domain, update the policy to allow only those required sources and re-test sign-in, gallery images, and the installed PWA after deployment.
+
 For local development, set `APP_SITE_URL` to `http://localhost:5173` in the Supabase CLI environment or Edge Function local env file. Use the exact origin that is allow-listed in Supabase Authentication redirect URLs. The function uses Supabase's server-provided URL and service-role environment variables; never add the service-role key to `frontend/.env.local`, a `VITE_` variable, or any browser-accessible setting.
 
 Do not put a Supabase service-role key in the Vite app or `frontend/.env.local`. The browser uses only the publishable anon key; RLS is responsible for access control. The existing server credentials are kept in the ignored `backend/.env.local`; rotate any key that was previously committed or shared.
