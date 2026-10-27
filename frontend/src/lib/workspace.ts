@@ -30,6 +30,8 @@ export type WorkspaceOrder = {
   status: 'Pending' | 'Cutting' | 'Sewing' | 'Fitting' | 'Completed' | 'Delivered'
   date: string
   amount: number
+  description?: string
+  fabricDetails?: string
   quantity?: number
   unitPrice?: number
   clothAmount?: number
@@ -562,7 +564,7 @@ async function loadWorkspaceFromServer(
     supabase.from('apprentice_profiles').select('id,user_id,start_date,skill_level,specialization,status,notes'),
     supabase.from('apprentice_training_records').select('id,apprentice_user_id,record_type,record_date,hours,activity,skill_name,skill_level,attendance_status,leave_end_date,notes').order('record_date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('customers').select('id,customer_number,full_name,phone,whatsapp_number,email,address,gender,preferred_garment,photo_path').is('archived_at', null).order('created_at', { ascending: false }),
-    supabase.from('orders').select('id,order_number,customer_id,garment_type,description,total_amount,delivery_date,status,quantity,unit_price,cloth_amount,discount_amount,created_at').order('created_at', { ascending: false }),
+    supabase.from('orders').select('id,order_number,customer_id,garment_type,description,fabric_details,total_amount,delivery_date,status,quantity,unit_price,cloth_amount,discount_amount,created_at').order('created_at', { ascending: false }),
     supabase.from('payments').select('id,order_id,amount,payment_method,payment_date,status').neq('status', 'voided'),
     supabase.from('tasks').select('id,order_id,title,description,checklist,assigned_to,priority,status,deadline'),
     supabase.from('task_updates').select('id,task_id,updated_by,previous_status,new_status,comment,created_at').order('created_at', { ascending: false }),
@@ -631,6 +633,8 @@ async function loadWorkspaceFromServer(
       status: orderStatusFromDatabase(text(row, 'status')),
       date: formatDate(text(row, 'delivery_date')),
       amount: numeric(row, 'total_amount'),
+      description: text(row, 'description'),
+      fabricDetails: text(row, 'fabric_details'),
       quantity: numeric(row, 'quantity', 1),
       unitPrice: numeric(row, 'unit_price', numeric(row, 'total_amount')),
       clothAmount: numeric(row, 'cloth_amount'),
@@ -1033,6 +1037,8 @@ export async function createOrderRecord(input: {
   garment: string
   amount: number
   deliveryDate: string
+  notes?: string
+  fabricDetails?: string
   quantity?: number
   unitPrice?: number
   clothAmount?: number
@@ -1042,7 +1048,8 @@ export async function createOrderRecord(input: {
   const { data, error } = await client.from('orders').insert({
     customer_id: input.customerId,
     garment_type: input.garment,
-    description: input.garment,
+    description: input.notes?.trim() || null,
+    fabric_details: input.fabricDetails?.trim() || null,
     total_amount: input.amount,
     quantity: input.quantity ?? 1,
     unit_price: input.unitPrice ?? input.amount,
@@ -1050,7 +1057,7 @@ export async function createOrderRecord(input: {
     discount_amount: input.discountAmount ?? 0,
     delivery_date: input.deliveryDate,
     status: 'pending',
-  }).select('id,order_number,customer_id,garment_type,description,total_amount,delivery_date,status,quantity,unit_price,cloth_amount,discount_amount,created_at').single()
+  }).select('id,order_number,customer_id,garment_type,description,fabric_details,total_amount,delivery_date,status,quantity,unit_price,cloth_amount,discount_amount,created_at').single()
   if (error) throw error
   const row = data as Row
   return {
@@ -1063,6 +1070,8 @@ export async function createOrderRecord(input: {
     status: orderStatusFromDatabase(text(row, 'status')),
     date: formatDate(text(row, 'delivery_date')),
     amount: numeric(row, 'total_amount'),
+    description: text(row, 'description'),
+    fabricDetails: text(row, 'fabric_details'),
     quantity: numeric(row, 'quantity', 1),
     unitPrice: numeric(row, 'unit_price', numeric(row, 'total_amount')),
     clothAmount: numeric(row, 'cloth_amount'),

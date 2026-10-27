@@ -597,6 +597,8 @@ type OrderRecord = {
   status: OrderStatus;
   date: string;
   amount: number;
+  description?: string;
+  fabricDetails?: string;
   quantity?: number;
   unitPrice?: number;
   clothAmount?: number;
@@ -2802,6 +2804,13 @@ function App() {
     setActivePage("Customers");
   }
 
+  function startNewOrder() {
+    setContinueToOrder(false);
+    setNewOrderCustomerName("");
+    setOrderFormError("");
+    setIsOrderOpen(true);
+  }
+
   function closeCustomerForm() {
     setContinueToOrder(false);
     setCustomerFormOpen(false);
@@ -2926,21 +2935,52 @@ function App() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     setOrderFormError("");
-    const customerName = String(formData.get("customer")).trim();
+    const customerSelection = String(formData.get("customer")).trim();
     const garment = String(formData.get("item")).trim();
     const deliveryDateValue = String(formData.get("deliveryDate"));
-    const deliveryDate = new Date(
-      `${formData.get("deliveryDate")}T00:00:00`,
-    ).toLocaleDateString("en-GB", {
+    const deliveryDateDate = parseCalendarDate(deliveryDateValue);
+    const orderPrice = Number(formData.get("price"));
+    const depositAmount = Number(formData.get("deposit") || 0);
+    const depositMethod = String(formData.get("depositMethod") || "Cash") as
+      | "Cash"
+      | "Mobile Money"
+      | "Bank Transfer"
+      | "Other";
+    if (
+      !deliveryDateDate ||
+      dateKey(deliveryDateDate) !== deliveryDateValue ||
+      deliveryDateValue < dateKey(new Date())
+    ) {
+      setOrderFormError("Choose a valid delivery date that is today or later.");
+      return;
+    }
+    if (!Number.isFinite(orderPrice) || orderPrice <= 0) {
+      setOrderFormError("Enter an estimated price greater than zero.");
+      return;
+    }
+    if (
+      !Number.isFinite(depositAmount) ||
+      depositAmount < 0 ||
+      depositAmount > orderPrice
+    ) {
+      setOrderFormError("The deposit must be between zero and the order total.");
+      return;
+    }
+    const deliveryDate = deliveryDateDate.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
     });
-    const orderPrice = Number(formData.get("price"));
+    const notes = String(formData.get("notes") ?? "").trim();
+    const fabricDetails = String(formData.get("fabricDetails") ?? "").trim();
     let activityOrderId = "";
+    let createdOrder: OrderRecord;
     if (isSupabaseConfigured) {
       const customer = customerRecords.find(
-        (record) => record.name.toLowerCase() === customerName.toLowerCase(),
+        (record) =>
+          record.dbId === customerSelection ||
+          record.id === customerSelection ||
+          record.name.toLowerCase() === customerSelection.toLowerCase(),
       );
       if (!customer?.dbId) {
         setOrderFormError(
@@ -2948,6 +2988,7 @@ function App() {
         );
         return;
       }
+      const customerName = customer.name;
       try {
         const savedOrder = await createOrderRecord({
           customerId: customer.dbId,
@@ -2955,8 +2996,11 @@ function App() {
           garment,
           amount: orderPrice,
           deliveryDate: deliveryDateValue,
+          notes,
+          fabricDetails,
         });
         activityOrderId = savedOrder.dbId ?? "";
+        createdOrder = savedOrder;
         setOrders((current) => [savedOrder, ...current]);
         setPayments((current) => [
           {
@@ -2987,23 +3031,24 @@ function App() {
     } else {
       const nextOrderNumber = orders.length + 1;
       const orderId = `#ORD-${String(nextOrderNumber).padStart(5, "0")}`;
+      const customerName = customerSelection;
       const localCustomer = customerRecords.find(
         (record) => record.name.toLowerCase() === customerName.toLowerCase(),
       );
       activityOrderId = orderId;
-      setOrders((currentOrders) => [
-        {
-          id: orderId,
-          createdAt: new Date().toISOString(),
-          customerId: localCustomer?.dbId ?? localCustomer?.id,
-          customer: customerName,
-          item: garment,
-          status: "Pending",
-          date: deliveryDate,
-          amount: orderPrice,
-        },
-        ...currentOrders,
-      ]);
+      createdOrder = {
+        id: orderId,
+        createdAt: new Date().toISOString(),
+        customerId: localCustomer?.dbId ?? localCustomer?.id,
+        customer: customerName,
+        item: garment,
+        status: "Pending",
+        date: deliveryDate,
+        amount: orderPrice,
+        description: notes,
+        fabricDetails,
+      };
+      setOrders((currentOrders) => [createdOrder, ...currentOrders]);
       setPayments((currentPayments) => [
         {
           id: `PAY-${String(currentPayments.length + 1).padStart(5, "0")}`,
@@ -3017,15 +3062,65 @@ function App() {
         ...currentPayments,
       ]);
     }
+
+    const customerName = createdOrder.customer;
+    let depositSaveError = "";
+    if (depositAmount > 0) {
+      if (isSupabaseConfigured && activityOrderId) {
+        try {
+          const transaction = await createPaymentRecord({
+            orderId: activityOrderId,
+            amount: depositAmount,
+            method: depositMethod,
+            date: dateKey(new Date()),
+          });
+          setPaymentTransactions((current) => [
+            {
+              ...transaction,
+              orderId: createdOrder.id,
+              orderUuid: activityOrderId,
+              customer: customerName,
+            },
+            ...current,
+          ]);
+        } catch (error) {
+          depositSaveError =
+            error instanceof Error
+              ? ` Order created, but the deposit could not be recorded: ${error.message}`
+              : " Order created, but the deposit could not be recorded.";
+        }
+      }
+      if (!depositSaveError) {
+        setPayments((current) =>
+          current.map((payment) =>
+            payment.orderId === createdOrder.id
+              ? {
+                  ...payment,
+                  paid: depositAmount,
+                  method: depositMethod,
+                  date: dateKey(new Date()),
+                }
+              : payment,
+          ),
+        );
+      }
+    }
+
     setIsOrderOpen(false);
     setNewOrderCustomerName("");
+    setActivePage("Orders");
+    setSelectedOrderId(createdOrder.id);
     void recordActivity(
       "order.created",
       "order",
       `${customerName} · ${garment}`,
       isSupabaseConfigured ? activityOrderId : undefined,
     );
-    setNotice("Order created successfully");
+    setNotice(
+      depositSaveError
+        ? `Order created.${depositSaveError}`
+        : "Order created successfully",
+    );
     window.setTimeout(() => setNotice(""), 3000);
   }
 
@@ -6722,7 +6817,7 @@ function App() {
             <button
               className="primary-button desktop-create"
               type="button"
-              onClick={startCustomerOrder}
+              onClick={startNewOrder}
             >
               <Plus size={15} /> New Order
             </button>
@@ -13599,7 +13694,7 @@ function App() {
               <button
                 className="primary-button"
                 type="button"
-                onClick={startCustomerOrder}
+                onClick={startNewOrder}
               >
                 <Plus size={16} /> New Order
               </button>
@@ -13845,7 +13940,7 @@ function App() {
                     className="icon-button panel-more"
                     type="button"
                     aria-label="Create order"
-                    onClick={startCustomerOrder}
+                    onClick={startNewOrder}
                   >
                     <Plus size={16} />
                   </button>
@@ -14186,7 +14281,7 @@ function App() {
           className="mobile-add"
           type="button"
           aria-label="New order"
-          onClick={startCustomerOrder}
+          onClick={startNewOrder}
         >
           <Plus size={20} />
         </button>
@@ -14365,14 +14460,27 @@ function App() {
                     autoFocus
                     className="form-select"
                     name="customer"
-                    defaultValue={newOrderCustomerName}
+                    defaultValue={
+                      customerRecords.find(
+                        (customer) =>
+                          customer.name === newOrderCustomerName,
+                      )?.dbId ??
+                      customerRecords.find(
+                        (customer) =>
+                          customer.name === newOrderCustomerName,
+                      )?.id ??
+                      ""
+                    }
                     required
                   >
                     <option value="" disabled>
                       Select a saved customer
                     </option>
                     {customerRecords.map((customer) => (
-                      <option key={customer.id} value={customer.name}>
+                      <option
+                        key={customer.id}
+                        value={customer.dbId ?? customer.id}
+                      >
                         {customer.name}
                       </option>
                     ))}
@@ -14398,17 +14506,65 @@ function App() {
               <div className="form-row">
                 <label>
                   Delivery date
-                  <input name="deliveryDate" type="date" required />
+                  <input
+                    name="deliveryDate"
+                    type="date"
+                    min={dateKey(new Date())}
+                    required
+                  />
                 </label>
                 <label>
-                  Estimated price
+                  Agreed order total
                   <input
                     name="price"
                     type="number"
-                    min="0"
+                    min="0.01"
+                    step="0.01"
                     placeholder={`${shopSettings.currency === "GHS" ? "GH₵" : "$"} 0.00`}
                     required
                   />
+                </label>
+              </div>
+              <label>
+                Fabric / style details <span className="optional-label">Optional</span>
+                <input
+                  name="fabricDetails"
+                  maxLength={500}
+                  placeholder="Fabric, color, style, or design notes"
+                />
+              </label>
+              <label>
+                Order notes <span className="optional-label">Optional</span>
+                <textarea
+                  name="notes"
+                  maxLength={2000}
+                  rows={3}
+                  placeholder="Special requests or details to remember"
+                />
+              </label>
+              <p className="auth-feedback">
+                You can add or update the customer’s measurements after creating
+                the order.
+              </p>
+              <div className="form-row">
+                <label>
+                  Deposit <span className="optional-label">Optional</span>
+                  <input
+                    name="deposit"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                </label>
+                <label>
+                  Deposit method
+                  <select className="form-select" name="depositMethod" defaultValue="Cash">
+                    <option>Cash</option>
+                    <option>Mobile Money</option>
+                    <option>Bank Transfer</option>
+                    <option>Other</option>
+                  </select>
                 </label>
               </div>
               {orderFormError && (
@@ -14426,6 +14582,16 @@ function App() {
                   }}
                 >
                   Cancel
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setIsOrderOpen(false);
+                    startCustomerOrder();
+                  }}
+                >
+                  Add customer first
                 </button>
                 <button className="primary-button" type="submit">
                   <Plus size={15} /> Create order
@@ -14472,6 +14638,18 @@ function App() {
                 <dt>Garment / Design</dt>
                 <dd>{selectedOrder.item}</dd>
               </div>
+              {selectedOrder.fabricDetails && (
+                <div>
+                  <dt>Fabric / Style</dt>
+                  <dd>{selectedOrder.fabricDetails}</dd>
+                </div>
+              )}
+              {selectedOrder.description && (
+                <div>
+                  <dt>Order notes</dt>
+                  <dd>{selectedOrder.description}</dd>
+                </div>
+              )}
               <div>
                 <dt>Delivery date</dt>
                 <dd>
