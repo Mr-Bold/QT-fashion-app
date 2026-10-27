@@ -18,18 +18,25 @@
 }
 
 html {
-  min-width: 320px;
   min-height: 100%;
+  overflow-x: hidden;
   background: #f7f7fb;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(ellipse at 82% 4%, rgb(243 234 250 / 45%), transparent 34%),
     #f7f7fb;
+}
+
+html:has(.modal-backdrop),
+body:has(.modal-backdrop) {
+  overflow: hidden;
 }
 
 button,
@@ -47,4 +54,5 @@ select:focus-visible {
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
 }

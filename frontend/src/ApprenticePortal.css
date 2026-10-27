@@ -1,5 +1,6 @@
 .apprentice-portal {
   min-height: 100vh;
+  min-height: 100dvh;
   color: #252137;
   background: #f7f5fa;
 }
@@ -355,12 +356,20 @@
 @media (max-width: 600px) {
   .apprentice-portal-header {
     min-height: 64px;
-    padding: 0 16px;
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      0
+      max(16px, env(safe-area-inset-left));
   }
 
   .apprentice-portal-content {
-    width: min(100% - 28px, 900px);
+    width: min(
+      calc(100% - 28px - env(safe-area-inset-left) - env(safe-area-inset-right)),
+      900px
+    );
     padding-top: 28px;
+    padding-bottom: calc(48px + env(safe-area-inset-bottom));
   }
 
   .apprentice-portal-summary {
@@ -380,6 +389,16 @@
 
   .apprentice-portal-task {
     padding: 15px;
+  }
+
+  .apprentice-portal input:not([type="checkbox"]),
+  .apprentice-portal textarea {
+    font-size: 16px;
+  }
+
+  .apprentice-portal-actions > button,
+  .apprentice-portal-signout {
+    min-height: 44px;
   }
 
   .apprentice-portal-task-heading {
