@@ -9,13 +9,14 @@ type ApprenticePortalProps = {
   updates: WorkspaceTaskUpdate[]
   onUpdate: (task: WorkspaceTask, status: WorkspaceTask['status'], comment: string) => Promise<void>
   onChecklistUpdate: (task: WorkspaceTask, checklist: WorkspaceTask['checklist']) => Promise<void>
-  onSignOut: () => void
+  onSignOut: () => Promise<void>
 }
 
 export default function ApprenticePortal({ apprentice, tasks, updates, onUpdate, onChecklistUpdate, onSignOut }: ApprenticePortalProps) {
   const [comments, setComments] = useState<Record<string, string>>({})
   const [busyTaskId, setBusyTaskId] = useState('')
   const [checklistBusyTaskId, setChecklistBusyTaskId] = useState('')
+  const [signOutBusy, setSignOutBusy] = useState(false)
   const [error, setError] = useState('')
   const openTasks = tasks.filter((task) => task.status !== 'Done')
   const canUpdateTasks = apprentice.status === 'Active'
@@ -47,11 +48,22 @@ export default function ApprenticePortal({ apprentice, tasks, updates, onUpdate,
     }
   }
 
+  async function handleSignOut() {
+    setSignOutBusy(true)
+    try {
+      await onSignOut()
+    } finally {
+      setSignOutBusy(false)
+    }
+  }
+
   return (
     <main className="apprentice-portal">
       <header className="apprentice-portal-header">
         <a className="apprentice-portal-brand" href="#tasks"><span>QT Fashion app</span><small>APPRENTICE WORKSPACE</small></a>
-        <button className="apprentice-portal-signout" type="button" onClick={onSignOut}><LogOut size={16} /> Sign out</button>
+        <button className="apprentice-portal-signout" type="button" disabled={signOutBusy} aria-busy={signOutBusy || undefined} onClick={() => void handleSignOut()}>
+          {signOutBusy ? <span className="button-processing-indicator"><span className="button-processing-spinner" aria-hidden="true" />Signing out…</span> : <><LogOut size={16} /> Sign out</>}
+        </button>
       </header>
       <section className="apprentice-portal-content" aria-labelledby="apprentice-portal-title">
         <p className="apprentice-portal-kicker">YOUR WORKSPACE</p>
@@ -106,9 +118,9 @@ export default function ApprenticePortal({ apprentice, tasks, updates, onUpdate,
                   />
                 </label>
                 <div className="apprentice-portal-actions">
-                  {task.status === 'To do' && <button type="button" disabled={busy || !canUpdateTasks} onClick={() => void submitUpdate(task, 'Accepted')}><Check size={15} /> Accept task</button>}
-                  {task.status === 'Accepted' && <button type="button" disabled={busy || !canUpdateTasks} onClick={() => void submitUpdate(task, 'In progress')}><Check size={15} /> Start task</button>}
-                  {['In progress', 'Revision requested'].includes(task.status) && <button type="button" disabled={busy || !canUpdateTasks} onClick={() => void submitUpdate(task, task.status === 'Revision requested' ? 'In progress' : 'Review')}><Send size={15} /> {task.status === 'Revision requested' ? 'Resume work' : 'Submit for review'}</button>}
+                  {task.status === 'To do' && <button type="button" disabled={busy || !canUpdateTasks} aria-busy={busy || undefined} onClick={() => void submitUpdate(task, 'Accepted')}>{busy ? <span className="button-processing-indicator"><span className="button-processing-spinner" aria-hidden="true" />Saving…</span> : <><Check size={15} /> Accept task</>}</button>}
+                  {task.status === 'Accepted' && <button type="button" disabled={busy || !canUpdateTasks} aria-busy={busy || undefined} onClick={() => void submitUpdate(task, 'In progress')}>{busy ? <span className="button-processing-indicator"><span className="button-processing-spinner" aria-hidden="true" />Saving…</span> : <><Check size={15} /> Start task</>}</button>}
+                  {['In progress', 'Revision requested'].includes(task.status) && <button type="button" disabled={busy || !canUpdateTasks} aria-busy={busy || undefined} onClick={() => void submitUpdate(task, task.status === 'Revision requested' ? 'In progress' : 'Review')}>{busy ? <span className="button-processing-indicator"><span className="button-processing-spinner" aria-hidden="true" />Saving…</span> : <><Send size={15} /> {task.status === 'Revision requested' ? 'Resume work' : 'Submit for review'}</>}</button>}
                   {task.status === 'Review' && <span className="apprentice-portal-waiting">Waiting for the shop to review your work.</span>}
                   {task.status === 'Done' && <span className="apprentice-portal-complete"><Check size={15} /> Completed</span>}
                   {busy && <span className="apprentice-portal-saving" role="status">Saving…</span>}

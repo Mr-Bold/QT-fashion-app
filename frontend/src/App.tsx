@@ -1,4 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type FormEvent,
+  type FormEventHandler,
+  type FormHTMLAttributes,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import type { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import {
@@ -113,6 +126,132 @@ const navigation = [
 
 const releaseHighlightsId = "2026-10-26-help-support-and-feedback";
 const releaseHighlightsStorageKey = "qt-fashion-seen-release-highlights";
+
+type AsyncFormProps = Omit<FormHTMLAttributes<HTMLFormElement>, "onSubmit"> & {
+  onSubmit: FormEventHandler<HTMLFormElement>;
+  pendingLabel?: string;
+};
+
+type AsyncActionButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "onClick"
+> & {
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  pendingLabel?: string;
+};
+
+function AsyncActionButton({
+  children,
+  disabled,
+  onClick,
+  pendingLabel = "Processing…",
+  ...buttonProps
+}: AsyncActionButtonProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const processingRef = useRef(false);
+
+  const handleClick = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    try {
+      await onClick(event);
+    } finally {
+      processingRef.current = false;
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <button
+      {...buttonProps}
+      disabled={disabled || isProcessing}
+      aria-busy={isProcessing || undefined}
+      onClick={handleClick}
+    >
+      {children}
+      {isProcessing && (
+        <span className="button-processing-indicator">
+          <span className="button-processing-spinner" aria-hidden="true" />
+          {pendingLabel}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function AsyncForm({
+  children,
+  onSubmit,
+  pendingLabel = "Processing…",
+  ...formProps
+}: AsyncFormProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const processingRef = useRef(false);
+
+  function renderSubmitButtons(nodes: ReactNode): ReactNode {
+    return Children.map(nodes, (node) => {
+      if (!isValidElement<{
+        children?: ReactNode;
+        className?: string;
+        disabled?: boolean;
+        type?: string;
+        "aria-busy"?: boolean;
+      }>(node)) {
+        return node;
+      }
+
+      const { children: nestedChildren, ...props } = node.props;
+      const updatedChildren = renderSubmitButtons(nestedChildren);
+      if (node.type !== "button" || (props.type && props.type !== "submit")) {
+        return cloneElement(node, {}, updatedChildren);
+      }
+
+      return cloneElement(node, {
+        disabled: isProcessing || props.disabled,
+        "aria-busy": isProcessing || undefined,
+        children: isProcessing ? (
+          <>
+            {updatedChildren}
+            <span className="button-processing-indicator">
+              <span className="button-processing-spinner" aria-hidden="true" />
+              {pendingLabel}
+            </span>
+          </>
+        ) : (
+          updatedChildren
+        ),
+      });
+    });
+  }
+
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault();
+    if (processingRef.current) {
+      return;
+    }
+
+    processingRef.current = true;
+    setIsProcessing(true);
+    try {
+      await onSubmit(event);
+    } finally {
+      processingRef.current = false;
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form {...formProps} aria-busy={isProcessing || undefined} onSubmit={handleSubmit}>
+      {renderSubmitButtons(children)}
+      {isProcessing && (
+        <span className="sr-only" role="status">
+          {pendingLabel}
+        </span>
+      )}
+    </form>
+  );
+}
 
 function hasUnseenReleaseHighlights() {
   try {
@@ -873,12 +1012,22 @@ function App() {
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeState] = useState("");
+  const [noticeType, setNoticeType] = useState<"success" | "error">("success");
   const [confirmationDialog, setConfirmationDialog] =
     useState<ConfirmationDialog | null>(null);
   const confirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(
     null,
   );
+
+  function setNotice(message: string) {
+    const errorLike =
+      /\b(could not|failed|failure|error|unable|invalid|must|choose|enter|select|cannot|can't|not found|not configured|unavailable|permission|violat|rejected|try again|does not|do not|sign in|not have|not linked|up to|expired)\b/i.test(
+        message,
+      );
+    setNoticeType(errorLike ? "error" : "success");
+    setNoticeState(message);
+  }
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -6144,7 +6293,7 @@ function App() {
                   Create account
                 </button>
               </div>
-              <form className="auth-form" onSubmit={submitAuth}>
+              <AsyncForm className="auth-form" onSubmit={submitAuth} pendingLabel="Submitting…">
                 {authMode === "sign-up" && (
                   <label>
                     Full name
@@ -6203,14 +6352,15 @@ function App() {
                   </span>
                 </label>
                 {authMode === "sign-in" && (
-                  <button
+                  <AsyncActionButton
                     className="auth-forgot-button"
                     type="button"
-                    onClick={() => void sendPasswordReset()}
+                    onClick={sendPasswordReset}
                     disabled={authBusy}
+                    pendingLabel="Sending reset link…"
                   >
                     Forgot password?
-                  </button>
+                  </AsyncActionButton>
                 )}
                 {authError && (
                   <p className="auth-feedback error" role="alert">
@@ -6234,7 +6384,7 @@ function App() {
                       : "Create account"}
                   <span aria-hidden="true">→</span>
                 </button>
-              </form>
+              </AsyncForm>
               <p className="auth-security-note">
                 <span aria-hidden="true">●</span> Your account is secured by
                 Supabase authentication.
@@ -6317,15 +6467,14 @@ function App() {
           >
             Try again
           </button>
-          <button
+          <AsyncActionButton
             className="secondary-button"
             type="button"
-            onClick={() => {
-              void signOut();
-            }}
+            onClick={signOut}
+            pendingLabel="Signing out…"
           >
             Sign out
-          </button>
+          </AsyncActionButton>
         </section>
       </main>
     );
@@ -6345,7 +6494,7 @@ function App() {
             Choose a private password to finish setting up your apprentice
             login. Your shop owner cannot see it.
           </p>
-          <form className="auth-form" onSubmit={submitPasswordSetup}>
+          <AsyncForm className="auth-form" onSubmit={submitPasswordSetup} pendingLabel="Saving password…">
             <label>
               New password
               <input
@@ -6382,14 +6531,15 @@ function App() {
                 ? "Saving password…"
                 : "Save password and continue"}
             </button>
-          </form>
-          <button
+          </AsyncForm>
+          <AsyncActionButton
             className="secondary-button"
             type="button"
-            onClick={() => void signOut()}
+            onClick={signOut}
+            pendingLabel="Signing out…"
           >
             Sign out
-          </button>
+          </AsyncActionButton>
         </section>
       </main>
     );
@@ -6421,9 +6571,7 @@ function App() {
         updates={taskUpdates}
         onUpdate={handleApprenticePortalTaskUpdate}
         onChecklistUpdate={handleApprenticePortalChecklistUpdate}
-        onSignOut={() => {
-          void signOut();
-        }}
+        onSignOut={signOut}
       />
     );
   }
@@ -6461,10 +6609,11 @@ function App() {
             <RefreshCw size={16} strokeWidth={1.8} />
             <span>Refresh page</span>
           </button>
-          <button
+          <AsyncActionButton
             className="sidebar-profile"
             type="button"
-            onClick={() => void signOut()}
+            onClick={signOut}
+            pendingLabel="Signing out…"
           >
             <span className="profile-avatar">
               {ownerDisplayName
@@ -6478,7 +6627,7 @@ function App() {
               <strong>{ownerDisplayName}</strong>
               <small>Sign out</small>
             </span>
-          </button>
+          </AsyncActionButton>
         </div>
       </aside>
 
@@ -6949,7 +7098,7 @@ function App() {
                   team.
                 </p>
               </div>
-              <form className="help-feedback-form" onSubmit={submitAppFeedback}>
+              <AsyncForm className="help-feedback-form" onSubmit={submitAppFeedback} pendingLabel="Sending feedback…">
                 <label>
                   How would you rate the app?
                   <select
@@ -7017,7 +7166,7 @@ function App() {
                 >
                   {feedbackBusy ? "Sending feedback…" : "Send feedback"}
                 </button>
-              </form>
+              </AsyncForm>
             </section>
           </section>
         ) : activePage === "Calendar" ? (
@@ -7307,14 +7456,15 @@ function App() {
                   >
                     Cancel
                   </button>
-                  <button
+                  <AsyncActionButton
                     className="primary-button"
                     type="button"
                     disabled={!selectedGalleryCustomer}
                     onClick={saveGalleryItemForCustomer}
+                    pendingLabel="Saving to history…"
                   >
                     Save to Customer History
-                  </button>
+                  </AsyncActionButton>
                 </div>
               </section>
             ) : (
@@ -7355,11 +7505,12 @@ function App() {
                       This device has a local gallery that has not been imported
                       into your Supabase shop.
                     </span>
-                    <button
+                    <AsyncActionButton
                       className="secondary-button"
                       type="button"
-                      onClick={() => {
-                        void importLocalClothGallery().catch((error: unknown) => {
+                      pendingLabel="Importing…"
+                      onClick={async () => {
+                        await importLocalClothGallery().catch((error: unknown) => {
                           console.error("Could not import this device's cloth gallery.", error);
                           setClothGalleryError(
                             error instanceof Error
@@ -7370,7 +7521,7 @@ function App() {
                       }}
                     >
                       Import from this device
-                    </button>
+                    </AsyncActionButton>
                   </div>
                 )}
                 <div
@@ -7550,7 +7701,7 @@ function App() {
                       <X size={18} />
                     </button>
                   </div>
-                  <form onSubmit={addCloth}>
+                  <AsyncForm onSubmit={addCloth} pendingLabel="Saving…">
                     {(() => {
                       const editingRecord = clothRecords.find(
                         (record) => record.id === editingClothId,
@@ -7683,7 +7834,7 @@ function App() {
                         {editingClothId ? "Save Changes" : "Add to Gallery"}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 </section>
               </div>
             )}
@@ -7778,15 +7929,14 @@ function App() {
                         </p>
                       </div>
                       <div className="modal-actions">
-                        <button
+                        <AsyncActionButton
                           className="secondary-button cloth-delete-button"
                           type="button"
-                          onClick={() =>
-                            void deleteGalleryItem(selectedGalleryRecord)
-                          }
+                          onClick={() => deleteGalleryItem(selectedGalleryRecord)}
+                          pendingLabel="Deleting…"
                         >
                           <Trash2 size={14} /> Delete
-                        </button>
+                        </AsyncActionButton>
                         <button
                           className="secondary-button"
                           type="button"
@@ -7891,7 +8041,7 @@ function App() {
                 aria-labelledby="settings-section-title"
               >
                 {settingsSection === "Shop Profile" && (
-                  <form className="settings-panel" onSubmit={saveShopSettings}>
+                  <AsyncForm className="settings-panel" onSubmit={saveShopSettings} pendingLabel="Saving settings…">
                     <div className="settings-panel-heading">
                       <span className="settings-panel-icon">
                         <UserRound size={17} />
@@ -8002,11 +8152,11 @@ function App() {
                         )}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 )}
 
                 {settingsSection === "Notifications" && (
-                  <form className="settings-panel" onSubmit={saveShopSettings}>
+                  <AsyncForm className="settings-panel" onSubmit={saveShopSettings} pendingLabel="Saving settings…">
                     <div className="settings-panel-heading">
                       <span className="settings-panel-icon">
                         <Bell size={17} />
@@ -8095,11 +8245,11 @@ function App() {
                         )}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 )}
 
                 {settingsSection === "Preferences" && (
-                  <form className="settings-panel" onSubmit={saveShopSettings}>
+                  <AsyncForm className="settings-panel" onSubmit={saveShopSettings} pendingLabel="Saving settings…">
                     <div className="settings-panel-heading">
                       <span className="settings-panel-icon">
                         <Settings size={17} />
@@ -8170,11 +8320,12 @@ function App() {
                           </p>
                         )}
                       </div>
-                      <button
+                      <AsyncActionButton
                         className="primary-button"
                         type="button"
                         disabled={isAppInstalled}
-                        onClick={() => void installApp()}
+                        onClick={installApp}
+                        pendingLabel="Installing…"
                       >
                         {isAppInstalled ? (
                           <>
@@ -8185,7 +8336,7 @@ function App() {
                             <Download size={15} /> Install app
                           </>
                         )}
-                      </button>
+                      </AsyncActionButton>
                     </section>
                     {settingsError && (
                       <p className="settings-error" role="alert">
@@ -8214,7 +8365,7 @@ function App() {
                         )}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 )}
 
                 {settingsSection === "Account & Security" && (
@@ -8244,9 +8395,10 @@ function App() {
                       </span>
                     </div>
                     {supabase && authSession ? (
-                      <form
+                      <AsyncForm
                         className="settings-security-form"
                         onSubmit={updateAccountPassword}
+                        pendingLabel="Updating password…"
                       >
                         <div>
                           <h4>Change password</h4>
@@ -8308,7 +8460,7 @@ function App() {
                             )}
                           </button>
                         </div>
-                      </form>
+                      </AsyncForm>
                     ) : (
                       <div className="settings-info-note">
                         <CircleHelp size={16} />
@@ -8316,9 +8468,10 @@ function App() {
                       </div>
                     )}
                     {supabase && authSession && workspaceUserRole === "owner" && (
-                      <form
+                      <AsyncForm
                         className="settings-security-form settings-delete-account-form"
-                        onSubmit={(event) => void deleteShopAccount(event)}
+                        onSubmit={deleteShopAccount}
+                        pendingLabel="Deleting shop…"
                       >
                         <div>
                           <h4>Delete shop and account</h4>
@@ -8377,7 +8530,7 @@ function App() {
                               : "Delete shop and account"}
                           </button>
                         </div>
-                      </form>
+                      </AsyncForm>
                     )}
                     {supabase && authSession && (
                       <div className="settings-data-row settings-danger-row">
@@ -8387,14 +8540,15 @@ function App() {
                             Sign out of this shop account on this device.
                           </p>
                         </div>
-                        <button
+                        <AsyncActionButton
                           className="secondary-button"
                           type="button"
-                          onClick={() => void signOut()}
+                          onClick={signOut}
+                          pendingLabel="Signing out…"
                         >
                           <LogOut size={14} />
                           Log out
-                        </button>
+                        </AsyncActionButton>
                       </div>
                     )}
                   </div>
@@ -9164,7 +9318,7 @@ function App() {
                       <X size={18} />
                     </button>
                   </div>
-                  <form onSubmit={recordPayment}>
+                  <AsyncForm onSubmit={recordPayment} pendingLabel="Recording payment…">
                     <label>
                       Order with outstanding balance
                       <select
@@ -9304,7 +9458,7 @@ function App() {
                         {paymentFormBusy ? "Saving payment…" : "Save Payment"}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 </section>
               </div>
             )}
@@ -10005,11 +10159,12 @@ function App() {
                           </button>
                         </div>
                       ) : (
-                        <form
+                        <AsyncForm
                           onSubmit={(event) => {
                             event.preventDefault();
-                            void completeTaskReview();
+                            return completeTaskReview();
                           }}
+                          pendingLabel="Saving review…"
                         >
                           <label>
                             {taskReviewDecision === "approved"
@@ -10054,7 +10209,7 @@ function App() {
                                   : "Send revision request"}
                             </button>
                           </div>
-                        </form>
+                        </AsyncForm>
                       )}
                     </section>
                   )}
@@ -10126,7 +10281,7 @@ function App() {
                       <X size={18} />
                     </button>
                   </div>
-                  <form onSubmit={addTask}>
+                  <AsyncForm onSubmit={addTask} pendingLabel="Adding task…">
                     <label>
                       Start from a template
                       <select
@@ -10268,7 +10423,7 @@ function App() {
                         {taskFormBusy ? "Saving task…" : "Add Task"}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 </section>
               </div>
             )}
@@ -10683,7 +10838,7 @@ function App() {
                       <X size={18} />
                     </button>
                   </div>
-                  <form onSubmit={addApprentice}>
+                  <AsyncForm onSubmit={addApprentice} pendingLabel="Adding apprentice…">
                     <label>
                       Full name
                       <input
@@ -10768,7 +10923,7 @@ function App() {
                           : "Add Apprentice"}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 </section>
               </div>
             )}
@@ -10926,28 +11081,30 @@ function App() {
                       <Pencil size={14} /> Edit profile
                     </button>
                     {isSupabaseConfigured && (
-                      <button
+                      <AsyncActionButton
                         className="secondary-button"
                         type="button"
                         disabled={
                           apprenticeInviteBusy || !selectedApprentice.userId
                         }
                         onClick={() =>
-                          void createApprenticeResetLink(selectedApprentice)
+                          createApprenticeResetLink(selectedApprentice)
                         }
+                        pendingLabel="Creating reset link…"
                       >
                         <KeyRound size={14} /> Reset login
-                      </button>
+                      </AsyncActionButton>
                     )}
-                    <button
+                    <AsyncActionButton
                       className="secondary-button apprentice-delete-button"
                       type="button"
                       disabled={apprenticeDeleteBusy}
-                      onClick={() => void deleteApprentice(selectedApprentice)}
+                      onClick={() => deleteApprentice(selectedApprentice)}
+                      pendingLabel="Deleting apprentice…"
                     >
                       <Trash2 size={14} />
                       {apprenticeDeleteBusy ? "Deleting…" : "Delete apprentice"}
-                    </button>
+                    </AsyncActionButton>
                   </div>
                   {selectedApprentice.notes && (
                     <p className="apprentice-profile-notes">
@@ -10990,7 +11147,7 @@ function App() {
                         </button>
                       </div>
                       {apprenticeAction === "profile" ? (
-                        <form onSubmit={saveApprenticeProfile}>
+                        <AsyncForm onSubmit={saveApprenticeProfile} pendingLabel="Saving profile…">
                           <label>
                             Phone number
                             <input
@@ -11036,9 +11193,9 @@ function App() {
                           <button className="primary-button" type="submit">
                             Save profile
                           </button>
-                        </form>
+                        </AsyncForm>
                       ) : (
-                        <form onSubmit={saveApprenticeTrainingRecord}>
+                        <AsyncForm onSubmit={saveApprenticeTrainingRecord} pendingLabel="Saving record…">
                           <label>
                             Date
                             <input
@@ -11149,7 +11306,7 @@ function App() {
                               Save record
                             </button>
                           </div>
-                        </form>
+                        </AsyncForm>
                       )}
                     </section>
                   )}
@@ -11904,7 +12061,7 @@ function App() {
                       </div>
                     </div>
                   ) : (
-                    <form onSubmit={saveMeasurement}>
+                    <AsyncForm onSubmit={saveMeasurement} pendingLabel="Saving measurements…">
                       <label>
                         Garment type
                         <select
@@ -12337,7 +12494,7 @@ function App() {
                             : "Save Measurement"}
                         </button>
                       </div>
-                    </form>
+                    </AsyncForm>
                   )}
                 </section>
               </div>
@@ -12371,7 +12528,7 @@ function App() {
                       <X size={18} />
                     </button>
                   </div>
-                  <form onSubmit={saveMeasurementPreset}>
+                  <AsyncForm onSubmit={saveMeasurementPreset} pendingLabel="Saving preset…">
                     <label>
                       Garment type
                       <select
@@ -12469,13 +12626,14 @@ function App() {
                           measurementPresetClothAmounts[
                             measurementPresetCategoryId
                           ] !== undefined) && (
-                        <button
+                        <AsyncActionButton
                           className="secondary-button"
                           type="button"
-                          onClick={() => void deleteMeasurementPreset()}
+                          onClick={deleteMeasurementPreset}
+                          pendingLabel="Deleting preset…"
                         >
                           <Trash2 size={14} /> Delete preset
-                        </button>
+                        </AsyncActionButton>
                       )}
                       <button
                         className="secondary-button"
@@ -12497,7 +12655,7 @@ function App() {
                           : "Save preset"}
                       </button>
                     </div>
-                  </form>
+                  </AsyncForm>
                 </section>
               </div>
             )}
@@ -12519,7 +12677,7 @@ function App() {
                     <ChevronLeft size={15} /> Back
                   </button>
                 </div>
-                <form className="customer-add-form" onSubmit={saveCustomer}>
+                <AsyncForm className="customer-add-form" onSubmit={saveCustomer} pendingLabel="Saving customer…">
                   <div className="customer-add-fields">
                     <label>
                       Full Name <span className="required-mark">*</span>
@@ -12626,7 +12784,7 @@ function App() {
                       Camera, upload, or gallery · JPG/PNG up to 5 MB
                     </span>
                   </div>
-                </form>
+                </AsyncForm>
               </section>
             ) : (
               <>
@@ -12834,15 +12992,16 @@ function App() {
                               >
                                 <Pencil size={16} />
                               </button>
-                              <button
+                              <AsyncActionButton
                                 className="delete-customer-button"
                                 type="button"
                                 aria-label={`Delete ${customer.name}`}
                                 title="Delete customer"
-                                onClick={() => void deleteCustomer(customer)}
+                                onClick={() => deleteCustomer(customer)}
+                                pendingLabel="Deleting…"
                               >
                                 <Trash2 size={16} />
-                              </button>
+                              </AsyncActionButton>
                             </div>
                           </div>
                         </article>
@@ -13004,9 +13163,10 @@ function App() {
                               </div>
                               <span>{selectedCustomerTimeline.length}</span>
                             </div>
-                            <form
+                            <AsyncForm
                               className="customer-note-form"
                               onSubmit={addCustomerNote}
+                              pendingLabel="Adding note…"
                             >
                               <label htmlFor="customer-note">
                                 Add a customer note
@@ -13023,7 +13183,7 @@ function App() {
                               >
                                 <Plus size={14} /> Add note
                               </button>
-                            </form>
+                            </AsyncForm>
                             {selectedCustomerTimeline.length ? (
                               <ol className="customer-timeline-list">
                                 {selectedCustomerTimeline.map((item) => (
@@ -13328,7 +13488,7 @@ function App() {
                           </div>
                         </div>
                       ) : (
-                        <form onSubmit={saveCustomer}>
+                        <AsyncForm onSubmit={saveCustomer} pendingLabel="Saving customer…">
                           <label>
                             Customer name
                             <input
@@ -13423,7 +13583,7 @@ function App() {
                                 : "Add customer"}
                             </button>
                           </div>
-                        </form>
+                        </AsyncForm>
                       )}
                     </section>
                   </div>
@@ -14107,8 +14267,12 @@ function App() {
       )}
 
       {notice && (
-        <div className="toast" role="status">
-          <Check size={15} />
+        <div
+          className={`toast ${noticeType === "error" ? "toast-error" : "toast-success"}`}
+          role={noticeType === "error" ? "alert" : "status"}
+          aria-live={noticeType === "error" ? "assertive" : "polite"}
+        >
+          {noticeType === "error" ? <X size={15} /> : <Check size={15} />}
           {notice}
         </div>
       )}
@@ -14193,7 +14357,7 @@ function App() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={createOrder}>
+            <AsyncForm onSubmit={createOrder} pendingLabel="Creating order…">
               <label>
                 Customer
                 {isSupabaseConfigured ? (
@@ -14267,7 +14431,7 @@ function App() {
                   <Plus size={15} /> Create order
                 </button>
               </div>
-            </form>
+            </AsyncForm>
           </section>
         </div>
       )}

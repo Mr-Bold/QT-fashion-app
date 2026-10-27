@@ -115,11 +115,13 @@ Deno.serve(async (request) => {
     const specialization = typeof body.specialization === 'string' ? body.specialization.trim() : ''
     const skillLevel = typeof body.skillLevel === 'string' ? body.skillLevel.trim().toLowerCase() : ''
     const startDate = typeof body.startDate === 'string' ? body.startDate : ''
+    const startDateTimestamp = Date.parse(`${startDate}T00:00:00Z`)
     if (!fullName || fullName.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
       || email.length > 254 || phone.length > 40 || !specialization || specialization.length > 80
       || !['beginner', 'intermediate', 'advanced'].includes(skillLevel)
       || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)
-      || Number.isNaN(Date.parse(`${startDate}T00:00:00Z`))) {
+      || Number.isNaN(startDateTimestamp)
+      || new Date(startDateTimestamp).toISOString().slice(0, 10) !== startDate) {
       return response({ error: 'Enter a valid name, email, phone, training area, skill level, and start date.' }, 400)
     }
     const { data: existingProfile, error: existingProfileError } = await admin.from('profiles')
